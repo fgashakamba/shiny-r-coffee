@@ -24,7 +24,33 @@ data_farms <- read_csv(paste(path, "data/Coffee_farms.csv", sep = "/"), col_type
 # convert coops and CWS data to sf
 data_coops %<>% st_as_sf(wkt = "geom", crs = 4326, remove = T) %>% st_transform(crs = 32736) 
 data_cws %<>% st_as_sf(wkt = "geom", crs = 4326, remove = T) %>% st_transform(crs = 32736) 
-data_farms %<>% st_as_sf(wkt = "geom", crs = 4326, remove = T) %>% st_transform(crs = 32736) 
+
+# for farms, there are some invalid WKT strings and we are going to remove these rows first
+#-------------------------------------------------
+# Create a function to check if a WKT string is valid
+check_valid_wkt <- function(wkt) {
+  result <- tryCatch(
+    {
+      st_as_sfc(wkt, crs = 4326)
+      TRUE
+    },
+    error = function(e) {
+      FALSE
+    }
+  )
+  return(result)
+}
+
+# Identify valid geometries
+data_farms$valid_geom <- sapply(data_farms$geom, check_valid_wkt)
+
+# Display the count of invalid geometries
+num_invalid <- sum(!data_farms$valid_geom)
+cat("Number of invalid geometries:", num_invalid, "\n")
+
+# Filter to keep only valid geometries and convert to sf
+data_farms %<>% filter(valid_geom) %>% st_as_sf(wkt = "geom", crs = 4326, remove = TRUE)
+data_farms %<>%  select(-valid_geom) %>% st_transform(crs = 32736) 
 
 # get farms centroids
 data_farms_centroids <- data_farms %>% st_centroid()
@@ -50,7 +76,7 @@ data_farmers %<>% mutate(national_id = sample(data_farms_stats$national_id, n(),
 #-------------------------------------------------------------
 
 # join farmers IDs to their corresponding farms
-data_farmers_full <- data_farmers %>% select(national_id, district, training_topics, cooperative_id, cws_id) %>%
+data_farmers_full <- data_farmers %>% select(national_id, district, training_topics, cooperative, farmer_cws_id) %>%
   left_join(data_farms_stats, by = "national_id")
 
 #-------------------------------------------------------
@@ -62,11 +88,10 @@ data_farmers_full %<>% mutate(cws_id = sample(data_cws$cws_id, n(), replace = TR
 #-------------------------------------------------------------
 
 # load geospatial data
-path <- "E:/Users/faustin.gashakamba_o/Desktop/data_wgs84"
-country <- st_read(file.path(paste0(path, "/RW_country.gpkg")), layer = "country")
-lakes <- st_read(file.path(paste0(path, "/RW_lakes.gpkg")), layer = "lakes")
-np <- st_read(file.path(paste0(path, "/RW_national_parks.gpkg")), layer = "np")
-districts <- st_read(file.path(paste0(path, "/RW_districts.gpkg")), layer = "districts")
+country <- st_read(paste(path,"data_wgs84", "RW_country.gpkg", sep = "/"), layer = "country")
+lakes <- st_read(paste(path,"data_wgs84", "RW_lakes.gpkg", sep = "/"), layer = "lakes")
+np <- st_read(paste(path,"data_wgs84", "RW_national_parks.gpkg", sep = "/"), layer = "np")
+districts <- st_read(paste(path,"data_wgs84", "RW_districts.gpkg", sep = "/"), layer = "districts")
 
 # clean and prepare the geospatial data
 country %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736) 
