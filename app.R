@@ -10,16 +10,35 @@
 
 # Load the required packages
 if(!require("pacman")) install.packages("pacman")
-pacman::p_load(magrittr, dplyr, readr, stringr, tidyr, shiny, lubridate, nngeo,
-                  bslib, shinyjs, shinycssloaders,
-                  plotly, leaflet, sf, tmap, viridis, janitor)
+pacman::p_load(magrittr, dplyr, readr, stringr, tidyr, lubridate,  
+               shiny, shinyjs, shinycssloaders, plotly,bslib,
+               leaflet, sf, nngeo, tmap, viridis,
+               googlesheets4, jsonlite, openssl, janitor)
 
 # Load kpi data
-path <- getwd()
-data_cws <- read_csv(paste(path, "data/Coffee_Washing_Stations.csv", sep = "/")) %>% clean_names(.)
-data_coops <- read_csv(paste(path, "data/Cooperatives.csv", sep = "/")) %>% clean_names(.) 
-data_farmers <- read_csv(paste(path, "data/Coffee_farmers.csv", sep = "/"), col_types = cols(.default = col_character())) %>% clean_names(.)
-data_farms <- read_csv(paste(path, "data/Coffee_farms.csv", sep = "/"), col_types = cols(.default = col_character())) %>% clean_names(.)
+# path <- getwd()
+# data_cws <- read_csv(paste(path, "data/Coffee_Washing_Stations.csv", sep = "/")) %>% clean_names(.)
+# data_coops <- read_csv(paste(path, "data/Cooperatives.csv", sep = "/")) %>% clean_names(.) 
+# data_farmers <- read_csv(paste(path, "data/Coffee_farmers.csv", sep = "/"), col_types = cols(.default = col_character())) %>% clean_names(.)
+# data_farms <- read_csv(paste(path, "data/Coffee_farms.csv", sep = "/"), col_types = cols(.default = col_character())) %>% clean_names(.)
+
+# Authenticate google sheets with a service account
+#---------------------------------------------------
+# The JSON service account file has been encoded to base64 and stored in the 
+# environment variable called "GSHEET_SERVICE_JSON_BASE64" like this:
+#cat(openssl::base64_encode(readChar("shiny-gsheets-service-account-file.json", file.info(json_path)$size)))
+b64 <- Sys.getenv("GSHEET_SERVICE_JSON_BASE64") # Read the encoded service account json file
+decoded_raw <- base64_decode(b64) # Decode the JSON string
+writeBin(decoded_raw, tempfile(fileext = ".json") ) # Write to temp file as binary
+gs4_auth(path = tmp)# Authenticate with the service account
+
+# Load the input datasets from Google Sheets
+url <- "https://docs.google.com/spreadsheets/d/1S2tvQ2S2GBQffGXAxLTExDu0i24jHxj7NwG-gWPahD4"
+data_farmers <- range_read(url, sheet = "Coffee farmers", range = "F1:AF")
+data_farms <- range_read(url, sheet = "Coffee_farms", range = "C1:AE")
+data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "B1:J")
+data_coops <- range_read(url, sheet = "Cooperatives", range = "F1:P")
+
 
 # convert coops and CWS data to sf
 data_coops %<>% st_as_sf(wkt = "geom", crs = 4326, remove = T) %>% st_transform(crs = 32736) 
