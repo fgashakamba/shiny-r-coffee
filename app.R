@@ -15,13 +15,8 @@ pacman::p_load(magrittr, dplyr, readr, stringr, tidyr, lubridate,
                leaflet, sf, nngeo, tmap, viridis,
                googlesheets4, jsonlite, openssl, janitor)
 
-# Load kpi data
-# path <- getwd()
-# data_cws <- read_csv(paste(path, "data/Coffee_Washing_Stations.csv", sep = "/")) %>% clean_names(.)
-# data_coops <- read_csv(paste(path, "data/Cooperatives.csv", sep = "/")) %>% clean_names(.) 
-# data_farmers <- read_csv(paste(path, "data/Coffee_farmers.csv", sep = "/"), col_types = cols(.default = col_character())) %>% clean_names(.)
-# data_farms <- read_csv(paste(path, "data/Coffee_farms.csv", sep = "/"), col_types = cols(.default = col_character())) %>% clean_names(.)
-
+# Load coffee kpi data
+#=========================================
 # Authenticate google sheets with a service account
 #---------------------------------------------------
 # The JSON service account file has been encoded to base64 and stored in the 
@@ -29,62 +24,31 @@ pacman::p_load(magrittr, dplyr, readr, stringr, tidyr, lubridate,
 #cat(openssl::base64_encode(readChar("shiny-gsheets-service-account-file.json", file.info(json_path)$size)))
 b64 <- Sys.getenv("GSHEET_SERVICE_JSON_BASE64") # Read the encoded service account json file
 decoded_raw <- base64_decode(b64) # Decode the JSON string
-writeBin(decoded_raw, tempfile(fileext = ".json") ) # Write to temp file as binary
+tmp <- tempfile(fileext = ".json") # Create a temporary file
+writeBin(decoded_raw, tmp) # Write decoded text to the created temporary file as binary
 gs4_auth(path = tmp)# Authenticate with the service account
 
 # Load the input datasets from Google Sheets
 url <- "https://docs.google.com/spreadsheets/d/1S2tvQ2S2GBQffGXAxLTExDu0i24jHxj7NwG-gWPahD4"
-data_farmers <- range_read(url, sheet = "Coffee farmers", range = "F1:AF")
-data_farms <- range_read(url, sheet = "Coffee_farms", range = "C1:AE")
-data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "B1:J")
-data_coops <- range_read(url, sheet = "Cooperatives", range = "F1:P")
+data_farmers <- range_read(url, sheet = "Coffee farmers", range = "A1:AF")
+data_farms <- range_read(url, sheet = "Coffee_farms", range = "A1:AE")
+data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "A1:Y")
+data_coops <- range_read(url, sheet = "Cooperatives", range = "A1:P")
 
 
 # convert coops and CWS data to sf
-data_coops %<>% st_as_sf(wkt = "geom", crs = 4326, remove = T) %>% st_transform(crs = 32736) 
-data_cws %<>% st_as_sf(wkt = "geom", crs = 4326, remove = T) %>% st_transform(crs = 32736) 
+data_coops %<>% st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326, remove = T, na.fail = T) %>% 
+  st_transform(crs = 32736) 
+data_cws %<>% st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326, remove = T, na.fail = T) %>%
+  st_transform(crs = 32736) 
+data_farms %<>% filter(!is.na(centroid_geopoint)) %>%  st_as_sf(wkt = "centroid_geopoint", crs = 4326, remove = T) %>%
+  st_transform(crs = 32736)
 
-# for farms, there are some invalid WKT strings and we are going to remove these rows first
-#-------------------------------------------------
-# Create a function to check if a WKT string is valid
-check_valid_wkt <- function(wkt) {
-  result <- tryCatch(
-    {
-      st_as_sfc(wkt, crs = 4326)
-      TRUE
-    },
-    error = function(e) {
-      FALSE
-    }
-  )
-  return(result)
-}
-
-# Identify valid geometries
-data_farms$valid_geom <- sapply(data_farms$geom, check_valid_wkt)
-
-# Display the count of invalid geometries
-num_invalid <- sum(!data_farms$valid_geom)
-cat("Number of invalid geometries:", num_invalid, "\n")
-
-# Filter to keep only valid geometries and convert to sf
-data_farms %<>% filter(valid_geom) %>% st_as_sf(wkt = "geom", crs = 4326, remove = TRUE)
-data_farms %<>%  select(-valid_geom) %>% st_transform(crs = 32736) 
-
-# get farms centroids
-data_farms_centroids <- data_farms %>% st_centroid()
-
-# convert some columns to numbers
-data_coops %<>% mutate(nbr_cooperative_members = as.numeric(nbr_cooperative_members))
-data_cws %<>% mutate(actual_capacity = as.numeric(actual_capacity))
-
-# calculate area of farms
-data_farms %<>% mutate(area = st_area(.)) %>% mutate(area = as.numeric(area)/100)
 
 # since one farmer (national id) can have multiple farms, we need to aggregate the data
 # to get the total area and number of coffee trees per farmer (per age of trees)
 data_farms_stats <- data_farms %>% st_drop_geometry() %>% group_by(national_id, age_range_coffee_trees) %>% 
-  summarise(area = sum(area, na.rm = T),
+  summarise(area = sum(area_ares, na.rm = T),
             nbr_coffee_trees = sum(as.integer(nbr_coffee_trees), na.rm = T),
             .groups = "drop")
 
@@ -107,10 +71,10 @@ data_farmers_full %<>% mutate(cws_id = sample(data_cws$cws_id, n(), replace = TR
 #-------------------------------------------------------------
 
 # load geospatial data
-country <- st_read(paste(path,"data_wgs84", "RW_country.gpkg", sep = "/"), layer = "country")
-lakes <- st_read(paste(path,"data_wgs84", "RW_lakes.gpkg", sep = "/"), layer = "lakes")
-np <- st_read(paste(path,"data_wgs84", "RW_national_parks.gpkg", sep = "/"), layer = "np")
-districts <- st_read(paste(path,"data_wgs84", "RW_districts.gpkg", sep = "/"), layer = "districts")
+country <- st_read(paste(getwd(),"data_wgs84", "RW_country.gpkg", sep = "/"), layer = "country")
+lakes <- st_read(paste(getwd(),"data_wgs84", "RW_lakes.gpkg", sep = "/"), layer = "lakes")
+np <- st_read(paste(getwd(),"data_wgs84", "RW_national_parks.gpkg", sep = "/"), layer = "np")
+districts <- st_read(paste(getwd(),"data_wgs84", "RW_districts.gpkg", sep = "/"), layer = "districts")
 
 # clean and prepare the geospatial data
 country %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736) 
@@ -373,85 +337,94 @@ server <- function(input, output, session) {
   
   # render the cws/coops map
   output$map_coops <- renderLeaflet({
-    # Dynamic size values for the legends
-    coop_sizes <- range(data_coops$nbr_cooperative_members, na.rm = TRUE)
-    cws_sizes <- range(data_cws$actual_capacity, na.rm = TRUE)
+    # Define symbol sizes to use in both map and legend
+    symbol_sizes <- c(10, 16, 22)
     
-    coop_breaks <- round(seq(coop_sizes[1], coop_sizes[2], length.out = 3))  
-    cws_breaks <- round(seq(cws_sizes[1], cws_sizes[2], length.out = 3))
+    # add the category column to the CWS and coops data
+    cws_tertiles <- quantile(data_cws$actual_capacity, probs = c(0, 1/5, 1), na.rm = TRUE)
+    data_cws$category <- cut(data_cws$actual_capacity, breaks = cws_tertiles,
+                        labels = FALSE)
+    coop_tertiles <- quantile(data_coops$nbr_cooperative_members,probs = c(0, 1/5, 1), na.rm = TRUE)
+    data_coops$category <- cut(data_coops$nbr_cooperative_members,
+                        breaks = coop_tertiles,
+                        labels = FALSE)
     
-    # Create the tmap object
-    tmap_object <- tm_shape(districts) + 
-      tm_borders(col = "#A76948", alpha = .6) +
-      # Add tooltip and popup for districts
-      tm_text("district", size = 0) +  # This adds labels but makes them invisible
-      
+    # add a size_px column to hold the symbol size values in pixels
+    data_coops$coop_size_px <- symbol_sizes[data_coops$category]
+    data_cws  $cws_size_px <- symbol_sizes[data_cws$category]
+    
+    # Build the tmap object
+    tmap_object <- tmap_mode("view") +
+      tm_basemap("Esri.WorldTopoMap") +
+      tm_shape(districts) + 
+      tm_borders(col = "#A76948", fill_alpha = .6) +
       tm_shape(lakes) +
-      tm_polygons(col = "#2CA2E6", 
-                  alpha = .6, 
-                  popup.vars = c("Lake" = "name"),
-                  id = "name") +  # Add lake names as tooltips
-      
+      tm_polygons(col = "#2CA2E6", fill_alpha = .6,
+                  popup.vars = c("Lake" = "name"), id = "name") +
       tm_shape(np) + 
-      tm_polygons(col = "#158849", 
-                  alpha = .6,
-                  popup.vars = c("National Park" = "name"),
-                  id = "name") +  # Add national park names as tooltips
-      
+      tm_polygons(col = "#158849", fill_alpha = .6,
+                  popup.vars = c("National Park" = "name"), id = "name") +
       tm_shape(country) + 
       tm_borders(lwd = 2) +
       
       tm_shape(data_coops) + 
-      tm_dots(col = "#063b57", 
-              size = "nbr_cooperative_members",
-              title = "Cooperatives",
+      tm_dots(col = "#063b57",
+              size       = "coop_size_px",
+              scale      = 1, 
+              size.legend.show = FALSE, 
               popup.vars = c("Name" = "cooperative_name",
-                             "Members" = "nbr_cooperative_members"),
-              id = "cooperative_name",  # Use cooperative name as tooltip
-              legend.show = TRUE) +
-      
+                             "Members" = "nbr_cooperative_members")
+              ) +
+
       tm_shape(data_cws) + 
-      tm_dots(col = "#440d4a",  
-              size = "actual_capacity",
-              title = "Coffee Washing Stations",
+      tm_dots(col = "#440d4a",
+              size       = "cws_size_px",
+              scale      = 1,     
+              size.legend.show = FALSE, 
               popup.vars = c("Name" = "cws_name",
-                             "Capacity" = "actual_capacity"),
-              id = "cws_name",  # Use CWS name as tooltip
-              legend.show = TRUE) +
+                             "Capacity" = "actual_capacity")
+      ) +
       
-      tm_view(bbox = st_bbox(country))
-    # Convert the tmap object to a Leaflet map
+      tm_view(bbox = st_bbox(country)) +
+      tm_layout(frame = FALSE) +
+      tm_layout(legend.show = FALSE) 
+    
+    # Convert to leaflet
     leaflet_map <- tmap_leaflet(tmap_object)
     
-    # Create legends for both layers
+    # Create legend labels
+    coop_labels <- c(
+      paste(round(coop_tertiles[1]), "-", round(coop_tertiles[2]), "members"),
+      paste(round(coop_tertiles[2]), "-", round(coop_tertiles[3]), "members"),
+      paste(round(coop_tertiles[3]), "-", round(coop_tertiles[4]), "members")
+    )
+    cws_labels <- c(
+      paste(round(cws_tertiles[1]/1000), "-", round(cws_tertiles[2]/1000), "Tonnes"),
+      paste(round(cws_tertiles[2]/1000), "-", round(cws_tertiles[3]/1000), "Tonnes"),
+      paste(round(cws_tertiles[3]/1000), "-", round(cws_tertiles[4]/1000), "Tonnes")
+    )
+    
+    # Use the same symbol sizes as defined in the scale
     coop_legend <- addLegendCustom(
-      map = NULL, 
-      position = NULL,
-      size_values = coop_breaks,
-      labels = paste(coop_breaks, "members"),
+      map = NULL, position = NULL,
+      size_values = symbol_sizes,
+      labels = coop_labels,
       color = "#063b57",
       title = "Cooperatives"
     )
-    
     cws_legend <- addLegendCustom(
-      map = NULL, 
-      position = NULL,
-      size_values = cws_breaks,
-      labels = paste(cws_breaks, "capacity"),
+      map = NULL, position = NULL,
+      size_values = symbol_sizes,
+      labels = cws_labels,
       color = "#440d4a",
-      title = "CWS"
+      title = "CWS Capacity"
     )
-    
-    # Combine legends into a single container with horizontal layout
     combined_legend_html <- paste0(
       "<div style='display: flex; justify-content: center; align-items: flex-start; 
                 background: rgba(255, 255, 255, 0.2); padding: 5px; border-radius: 5px;'>",
-      coop_legend,
-      cws_legend,
-      "</div>"
+      coop_legend, cws_legend, "</div>"
     )
     
-    # Add combined legend to the map
     leaflet_map %>% addControl(html = combined_legend_html, position = "bottomright")
   })
   
@@ -459,7 +432,7 @@ server <- function(input, output, session) {
   addLegendCustom <- function(map, position, size_values, labels, color, title) {
     legend_html <- paste0(
       "<div style='padding: 10px; background: white; border: 1px solid #ccc; 
-                  border-radius: 5px; display: inline-block; margin-right: 10px;'>",
+                border-radius: 5px; display: inline-block; margin-right: 10px;'>",
       "<strong>", title, "</strong><br>"
     )
     
@@ -467,8 +440,8 @@ server <- function(input, output, session) {
       legend_html <- paste0(
         legend_html,
         "<div style='display: flex; align-items: center; margin-bottom: 5px;'>",
-        "<div style='width:", size_values[i] / max(size_values) * 20, "px; height:", 
-        size_values[i] / max(size_values) * 20, 
+        "<div style='width:", size_values[i], "px; height:", 
+        size_values[i], 
         "px; background:", color, "; border-radius:50%; margin-right: 10px;'></div>",
         labels[i], "</div>"
       )
@@ -531,12 +504,13 @@ server <- function(input, output, session) {
       tm_shape(country) + 
       tm_borders(lwd = 2) +
       
-      tm_shape(data_farms_centroids) + 
+      tm_shape(data_farms) + 
       tm_dots(col = "#011e0b",
               alpha = .6,
               size = 0.1) +
       
-      tm_view(bbox = st_bbox(country))
+      tm_view(bbox = st_bbox(country)) +
+      tm_basemap("Esri.WorldTopoMap")
     
     leaflet_map <- tmap_leaflet(tmap_object)
       })
