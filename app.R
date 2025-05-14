@@ -33,16 +33,16 @@ url <- "https://docs.google.com/spreadsheets/d/1S2tvQ2S2GBQffGXAxLTExDu0i24jHxj7
 data_farmers <- range_read(url, sheet = "Coffee farmers", range = "A1:AF")
 data_farms <- range_read(url, sheet = "Coffee_farms", range = "A1:AE")
 data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "A1:Y")
-data_coops <- range_read(url, sheet = "Cooperatives", range = "A1:P")
+data_coops <- range_read(url, sheet = "Cooperatives", range = "A1:R")
 
 
 # convert coops and CWS data to sf
-data_coops %<>% st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326, remove = T, na.fail = T) %>% 
-  st_transform(crs = 32736) 
-data_cws %<>% st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326, remove = T, na.fail = T) %>%
-  st_transform(crs = 32736) 
-data_farms %<>% filter(!is.na(centroid_geopoint)) %>%  st_as_sf(wkt = "centroid_geopoint", crs = 4326, remove = T) %>%
-  st_transform(crs = 32736)
+data_coops %<>% st_as_sf(coords = c("longitude", "latitude"), sf_column_name = "geom", crs = 4326, remove = T, na.fail = F) %>% 
+  filter(!st_is_empty(geom)) %>% st_transform(crs = 32736)
+data_cws %<>% st_as_sf(coords = c("longitude", "latitude"), sf_column_name = "geom", crs = 4326, remove = T, na.fail = F) %>%
+  filter(!st_is_empty(geom)) %>% st_transform(crs = 32736)
+data_farms %<>% st_as_sf(coords = c("longitude", "latitude"), sf_column_name = "geom", crs = 4326, remove = T, na.fail = F) %>%
+  filter(!st_is_empty(geom)) %>% st_transform(crs = 32736)
 
 
 # since one farmer (national id) can have multiple farms, we need to aggregate the data
@@ -55,7 +55,7 @@ data_farms_stats <- data_farms %>% st_drop_geometry() %>% group_by(national_id, 
 #-------------------------------------------------------
 # ensure we have farmers in both the farms and farmers datasets.
 # This is to be removed when we have full data
-data_farmers %<>% mutate(national_id = sample(data_farms_stats$national_id, n(), replace = TRUE))
+#data_farmers %<>% mutate(national_id = sample(data_farms_stats$national_id, n(), replace = TRUE))
 #-------------------------------------------------------------
 
 # join farmers IDs to their corresponding farms
@@ -66,8 +66,8 @@ data_farmers_full <- data_farmers %>% select(national_id, district, training_top
 # ensure we have many cooperatives in the farmers datasets that match those in the coops dataset.
 # we do the same for CWS data as well
 # This is to be removed when we have full data
-data_farmers_full %<>% mutate(cooperative_id = sample(data_coops$cooperative_id, n(), replace = TRUE))
-data_farmers_full %<>% mutate(cws_id = sample(data_cws$cws_id, n(), replace = TRUE))
+#data_farmers_full %<>% mutate(cooperative_id = sample(data_coops$cooperative_id, n(), replace = TRUE))
+#data_farmers_full %<>% mutate(cws_id = sample(data_cws$cws_id, n(), replace = TRUE))
 #-------------------------------------------------------------
 
 # load geospatial data
