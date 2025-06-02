@@ -13,6 +13,7 @@ if(!require("pacman")) install.packages("pacman")
 pacman::p_load(magrittr, dplyr, readr, stringr, tidyr, lubridate,  
                shiny, shinyjs, shinycssloaders, plotly,bslib,
                leaflet, sf, nngeo, tmap, viridis,
+               XML, lwgeom, # These are dependencies of 'tmap' that the developer forgot to list as dependencies
                googlesheets4, jsonlite, openssl, janitor)
 
 # Load coffee kpi data
@@ -30,7 +31,7 @@ gs4_auth(path = tmp)# Authenticate with the service account
 
 # Load the input datasets from Google Sheets
 url <- "https://docs.google.com/spreadsheets/d/1S2tvQ2S2GBQffGXAxLTExDu0i24jHxj7NwG-gWPahD4"
-data_farmers <- range_read(url, sheet = "Coffee farmers", range = "A1:AF")
+data_farmers <- range_read(url, sheet = "Coffee farmers", range = "A1:AG")
 data_farms <- range_read(url, sheet = "Coffee_farms", range = "A1:AE")
 data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "A1:Y")
 data_coops <- range_read(url, sheet = "Cooperatives", range = "A1:R")
@@ -59,7 +60,9 @@ data_farms_stats <- data_farms %>% st_drop_geometry() %>% group_by(national_id, 
 #-------------------------------------------------------------
 
 # join farmers IDs to their corresponding farms
-data_farmers_full <- data_farmers %>% select(national_id, district, training_topics, cooperative, farmer_cws_id) %>%
+data_farmers %<>% mutate(cws_id = str_replace_all(str_squish(str_to_lower(farmer_cws)), " ", "_"))
+data_farmers %<>% mutate(cooperative_id = str_replace_all(str_squish(str_to_lower(cooperative)), " ", "_"))
+data_farmers_full <- data_farmers %>% select(national_id, district, training_topics, cooperative_id, cws_id) %>%
   left_join(data_farms_stats, by = "national_id")
 
 #-------------------------------------------------------
