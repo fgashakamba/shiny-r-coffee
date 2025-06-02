@@ -34,7 +34,16 @@ url <- "https://docs.google.com/spreadsheets/d/1S2tvQ2S2GBQffGXAxLTExDu0i24jHxj7
 data_farms <- range_read(url, sheet = "Coffee_farms", range = "A1:AE")
 data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "A1:Y")
 data_coops <- range_read(url, sheet = "Cooperatives", range = "A1:R")
-data_farmers <- range_read(url, sheet = "Coffee farmers", range = "A1:AG")
+# Given farmers dataset is too big, use named ranges to avoid time-out in production
+ranges <- c("A:B", "G:H", "K:K", "R:R", "V:W", "Y:Z", "AE:AF")
+
+# Read each range separately
+range_list <- lapply(ranges, function(r) {
+  range_read(url, sheet = "Coffee farmers", range = r)
+})
+
+# Combine by columns (assuming same number of rows)
+data_farmers <- do.call(cbind, range_list)
 
 # convert coops and CWS data to sf
 data_coops %<>% st_as_sf(coords = c("longitude", "latitude"), sf_column_name = "geom", crs = 4326, remove = T, na.fail = F) %>% 
