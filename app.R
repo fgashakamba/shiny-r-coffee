@@ -31,11 +31,10 @@ gs4_auth(path = tmp)# Authenticate with the service account
 
 # Load the input datasets from Google Sheets
 url <- "https://docs.google.com/spreadsheets/d/1S2tvQ2S2GBQffGXAxLTExDu0i24jHxj7NwG-gWPahD4"
-data_farmers <- range_read(url, sheet = "Coffee farmers", range = "A1:AG")
 data_farms <- range_read(url, sheet = "Coffee_farms", range = "A1:AE")
 data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "A1:Y")
 data_coops <- range_read(url, sheet = "Cooperatives", range = "A1:R")
-
+data_farmers <- range_read(url, sheet = "Coffee farmers", range = "A1:AG")
 
 # convert coops and CWS data to sf
 data_coops %<>% st_as_sf(coords = c("longitude", "latitude"), sf_column_name = "geom", crs = 4326, remove = T, na.fail = F) %>% 
