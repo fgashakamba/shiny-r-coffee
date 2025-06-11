@@ -4141,8 +4141,11 @@
     ".Renviron": {
       "checksum": "e3d668b991b64dd5c6daf7462cfe980e"
     },
+    "app - Copy.R": {
+      "checksum": "47e145c10696dc1cf40fee6dc5ccb320"
+    },
     "app.R": {
-      "checksum": "34a2b0443407c09bed1d8962798960a9"
+      "checksum": "79a84dcc9422776bfd5e3f0b386e150e"
     },
     "data/Coffee_farmers.csv": {
       "checksum": "3a424da0c86d496dde85ced29b26e133"
@@ -4170,6 +4173,15 @@
     },
     "shiny-gsheets-service-account-file.json": {
       "checksum": "9ff381d308782c72daf2e332e08e9822"
+    },
+    "www/area_icon.jpg": {
+      "checksum": "f48453d75e366000153025a991883bb2"
+    },
+    "www/training_icon.jpg": {
+      "checksum": "42130bbef1fe6ddbba29faff34abb868"
+    },
+    "www/trees_icon.jpg": {
+      "checksum": "f37c70b4c90f535b899d580ca327ff57"
     }
   },
   "users": null
