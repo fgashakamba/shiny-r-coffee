@@ -220,7 +220,7 @@ ui <- fluidPage(
                                   full_screen = TRUE,
                                   #card_header("Map 1"),
                                   card_body(
-                                    leafletOutput("map_coops") %>%
+                                    leafletOutput("map_cws") %>%
                                       withSpinner(type = 6, color = "#30804e") %>% as_fill_carrier()
                                   )
                                 )
@@ -296,9 +296,6 @@ server <- function(input, output, session) {
     clicked_district = NULL
   )
   
-  # Remove screen_width reactive value and related observer.
-  # Responsive styling is now handled purely by CSS media queries.
-  
   # Observe tab changes and update the related variables accordingly
   observe({
     # Reset all selections when tab changes
@@ -309,7 +306,7 @@ server <- function(input, output, session) {
       
       # Clear map highlights based on which tab we're switching to
       if(input$mapTabs == "Cooperatives/CWS View") {
-        leafletProxy("map_coops") %>% clearGroup("clicked_points")
+        leafletProxy("map_cws") %>% clearGroup("clicked_points")
       } else {
         leafletProxy("map_farms") %>% clearGroup("highlighted_district")
       }
@@ -330,7 +327,7 @@ server <- function(input, output, session) {
   })
   
   nbr_farmers_young_country <- reactive({
-    data_farmers %>% filter(age < 30) %>%
+    data_farmers %>% mutate(age = as.integer(age)) %>% filter(age < 30) %>%
       summarize(nbr_farmers_young = n()) %>% pull(nbr_farmers_young)
   })
   
@@ -343,12 +340,11 @@ server <- function(input, output, session) {
   center_style <- "display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center;"
   
   # Simplified UI for National Statistics cards (Content only)
-  # No more `is_small_screen` checks in R; CSS handles responsiveness.
   output$nbr_farmers_content <- renderUI({
     div(class = "text-output-box",
         div(class = "text-output-content",
             div(class = "value", format(round(nbr_farmers_country()), big.mark = ",")),
-            div(class = "label", paste("Total # per country", subtitle_text()))
+            div(class = "label", "Total # of farmers per country")
         )
     )
   })
@@ -357,7 +353,7 @@ server <- function(input, output, session) {
     div(class = "text-output-box",
         div(class = "text-output-content",
             div(class = "value", paste0(format(round((nbr_farmers_women_country() * 100)/nbr_farmers_country()), big.mark = ","), "%")),
-            div(class = "label", paste("Women Farmers", subtitle_text()))
+            div(class = "label", "Female Farmers at the National Level")
         )
     )
   })
@@ -366,7 +362,7 @@ server <- function(input, output, session) {
     div(class = "text-output-box",
         div(class = "text-output-content",
             div(class = "value", paste0(format(round((nbr_farmers_young_country() * 100)/nbr_farmers_country()), big.mark = ","), "%")),
-            div(class = "label", paste("Youth Farmers", subtitle_text()))
+            div(class = "label", "Young Farmers at the National Level")
         )
     )
   })
@@ -375,13 +371,13 @@ server <- function(input, output, session) {
     div(class = "text-output-box",
         div(class = "text-output-content",
             div(class = "value", format(round(nbr_youth_hh_country()), big.mark = ",")),
-            div(class = "label", paste("Youth in Households", subtitle_text()))
+            div(class = "label", "Total # of Youth involved in coffee farming")
         )
     )
   })
   
   # render the cws/coops map
-  output$map_coops <- renderLeaflet({
+  output$map_cws <- renderLeaflet({
     # Define symbol sizes to use in both map and legend
     symbol_sizes <- c(10, 16, 22)
     
@@ -519,9 +515,9 @@ server <- function(input, output, session) {
   # Get the clicked cooperative or CWS
   clicked_cws_coop <- reactive({
     req(rv$current_tab == "Cooperatives/CWS View")
-    req(input$map_coops_click)
+    req(input$map_cws_click)
     
-    click <- input$map_coops_click
+    click <- input$map_cws_click
     
     # Create point from click
     pt <- st_point(c(click$lng, click$lat)) %>%
@@ -632,7 +628,6 @@ server <- function(input, output, session) {
       if (length(x) == 0 || is.na(x)) 0 else x
     })()
     
-    # Always use the .text-output-box and .text-output-content classes.
     # Display icon in content area only when there is no data.
     if (area <= 0) {
       div(class = "text-output-box",
@@ -709,35 +704,62 @@ server <- function(input, output, session) {
   
   # Observe clicks observers
   #-----------------------------
-  # 1. Coops/CWS map
+  # 1. Coops/CWS map 
   observe({
     req(rv$current_tab == "Cooperatives/CWS View")
-    click <- input$map_coops_click
+    click <- input$map_cws_click
+    
+    # Check which layers are currently active
+    active_layers <- input$map_cws_groups
+    coops_active <- "Cooperatives" %in% active_layers
+    cws_active <- "CWS" %in% active_layers
+    
+    # If no layers are active, don't process the click
+    if (!coops_active && !cws_active) {
+      return()
+    }
     
     # Create point from click
     pt <- st_point(c(click$lng, click$lat)) %>%
       st_sfc(crs = 4326) %>%
       st_transform(crs = st_crs(districts))
     
-    # find nearest neighbor in each layer using st_nn
-    nn_coops <- st_nn(pt, data_coops, k = 1, returnDist = TRUE)
-    nn_cws <- st_nn(pt, data_cws, k = 1, returnDist = TRUE)
+    # Calculate distances only for active layers
+    distances <- list()
+    nearest_points <- list()
     
-    if (nn_coops[[2]][[1]] < nn_cws[[2]][[1]]) {
-      nearest_idx <- nn_coops[[1]][[1]]
-      rv$clicked_point <- list(
+    if (coops_active) {
+      nn_coops <- st_nn(pt, data_coops, k = 1, returnDist = TRUE)
+      distances$coops <- nn_coops[[2]][[1]]
+      nearest_points$coops <- list(
         dataset = "data_coops",
-        row = data_coops[nearest_idx, ]
-      )
-    } else {
-      nearest_idx <- nn_cws[[1]][[1]]
-      rv$clicked_point <- list(
-        dataset = "data_cws",
-        row = data_cws[nearest_idx, ]
+        row = data_coops[nn_coops[[1]][[1]], ]
       )
     }
+    
+    if (cws_active) {
+      nn_cws <- st_nn(pt, data_cws, k = 1, returnDist = TRUE)
+      distances$cws <- nn_cws[[2]][[1]]
+      nearest_points$cws <- list(
+        dataset = "data_cws",
+        row = data_cws[nn_cws[[1]][[1]], ]
+      )
+    }
+    
+    # Select the nearest point from active layers only
+    if (length(distances) == 1) {
+      # Only one layer is active
+      rv$clicked_point <- nearest_points[[1]]
+    } else if (length(distances) == 2) {
+      # Both layers are active, choose the nearest
+      if (distances$coops < distances$cws) {
+        rv$clicked_point <- nearest_points$coops
+      } else {
+        rv$clicked_point <- nearest_points$cws
+      }
+    }
   }) %>%
-    bindEvent(input$map_coops_click)
+    bindEvent(input$map_cws_click)
   
   # 2. Farms map
   observe({
@@ -764,7 +786,7 @@ server <- function(input, output, session) {
   observe({
     req(rv$current_tab == "Cooperatives/CWS View")
     if(!is.null(rv$clicked_point)) {
-      leafletProxy("map_coops") %>%
+      leafletProxy("map_cws") %>%
         clearGroup("clicked_points") %>%
         addMarkers(
           data = if(rv$clicked_point$dataset == "data_coops")
