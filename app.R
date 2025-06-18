@@ -95,9 +95,9 @@ ui <- fluidPage(
         padding: 0;
       }
       .title-panel{
-        background-color: #473E2C;
+        background-color: #52876e;
         color: white;
-        padding: 20px 15px;
+        padding: 10px 5px;
         margin-bottom: 20px;
         width: 100vw;
         position: relative;
@@ -116,6 +116,30 @@ ui <- fluidPage(
         height: 100%;
         width: 100%;
       }
+      /* Styles for text output boxes (both large and small screens) */
+      .text-output-box .value {
+        font-size: 1em; /* Default smaller font size for the main number */
+        font-weight: bold;
+        margin-bottom: 5px;
+      }
+      .text-output-box .label {
+        font-size: 0.8em; /* Default smaller font size for the label */
+        color: #555;
+      }
+      .text-output-content {
+        display: flex;
+        flex-direction: column; /* Stack value and label vertically */
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+        text-align: center;
+      }
+      /* Adjust for large screens if needed for overall text, not for value/label specifically */
+      @media (min-width: 768px) {
+        /* You can add more specific large screen adjustments here if necessary,
+           but the .text-output-box .value/.label styles will apply by default
+           unless overridden for h1/p elements */
+      }
     "))
   ),
   useShinyjs(),  # Enable shinyjs
@@ -124,8 +148,7 @@ ui <- fluidPage(
   fluidRow(
     column(12,
            div(class = "title-panel",
-               h1("Coffee Extension Activities Dashboard"),
-               h3("A dashboard to track key extension-related KPIs for Rwanda's coffee program")
+               h3("Coffee Extension Activities Dashboard")
            )
     )
   ),
@@ -136,11 +159,12 @@ ui <- fluidPage(
     column(3,
            fluidRow(
              card(
-               style = "height: 16vh;",
+               style = "height: 20vh;",
                full_screen = TRUE,
-               card_header("# Farmers"),
+               # Always include icon in header for all screens
+               card_header(span(img(src = "farmer.png", height = "25px", style = "vertical-align: middle;"), "Total # Farmers")),
                card_body(
-                 htmlOutput("nbr_farmers") %>%
+                 uiOutput("nbr_farmers_content") %>% # Content rendered directly
                    withSpinner(type = 6, color = "#30804e",
                                hide.ui = FALSE, size = .5) %>% as_fill_carrier()
                )
@@ -148,11 +172,12 @@ ui <- fluidPage(
            ),
            fluidRow(
              card(
-               style = "height: 16vh;",
+               style = "height: 20vh;",
                full_screen = TRUE,
-               card_header("% Women"),
+               # Always include icon in header for all screens
+               card_header(span(img(src = "female_farmer.png", height = "25px", style = "vertical-align: middle;"), "% Women Farmers")),
                card_body(
-                 htmlOutput("nbr_farmers_women") %>%
+                 uiOutput("nbr_farmers_women_content") %>% # Content rendered directly
                    withSpinner(type = 6, color = "#30804e",
                                hide.ui = FALSE, size = .5) %>% as_fill_carrier()
                )
@@ -160,11 +185,12 @@ ui <- fluidPage(
            ),
            fluidRow(
              card(
-               style = "height: 16vh;",
+               style = "height: 20vh;",
                full_screen = TRUE,
-               card_header("% Youth"),
+               # Always include icon in header for all screens
+               card_header(span(img(src = "young_farmer.png", height = "25px", style = "vertical-align: middle;"), "% Youth Farmers")),
                card_body(
-                 htmlOutput("nbr_farmers_young") %>%
+                 uiOutput("nbr_farmers_young_content") %>% # Content rendered directly
                    withSpinner(type = 6, color = "#30804e",
                                hide.ui = FALSE, size = .5) %>% as_fill_carrier()
                )
@@ -172,11 +198,12 @@ ui <- fluidPage(
            ),
            fluidRow(
              card(
-               style = "height: 16vh;",
+               style = "height: 20vh;",
                full_screen = TRUE,
-               card_header("Young in HH"),
+               # Always include icon in header for all screens
+               card_header(span(img(src = "family_farmers.png", height = "25px", style = "vertical-align: middle;"), "Youth in HH")),
                card_body(
-                 htmlOutput("youth_in_hh") %>%
+                 uiOutput("youth_in_hh_content") %>% # Content rendered directly
                    withSpinner(type = 6, color = "#30804e",
                                hide.ui = FALSE, size = .5) %>% as_fill_carrier()
                )
@@ -219,9 +246,10 @@ ui <- fluidPage(
              card(
                style = "height: 16vh;",
                full_screen = TRUE,
-               card_header("Total area in Ha"),
+               # Always include icon in header for all screens
+               card_header(span(img(src = "farm_area.png", height = "25px", style = "vertical-align: middle;"), "Total Area in Ha")),
                card_body(
-                 uiOutput("farm_area") %>%
+                 uiOutput("farm_area_content") %>% # Content rendered directly
                    withSpinner(type = 6, color = "#30804e",
                                hide.ui = FALSE, size = .5) %>% as_fill_carrier()
                )
@@ -232,9 +260,9 @@ ui <- fluidPage(
              card(
                style = "height: 32vh;",
                full_screen = TRUE,
-               card_header("# Coffee trees per age"),
+               # Add coffee tree icon to header and ensure text is on the same line
+               card_header(span(img(src = "coffee_tree.png", height = "25px", style = "vertical-align: middle; margin-right: 5px;"), htmlOutput("coffee_trees_chart_title"))),
                card_body(
-                 # MODIFIED: Using uiOutput for dynamic content (plot or message)
                  uiOutput("coffee_trees_chart") %>%
                    withSpinner(type = 6, color = "#30804e",
                                hide.ui = FALSE) %>% as_fill_carrier()
@@ -244,11 +272,11 @@ ui <- fluidPage(
            # Training topics panel
            fluidRow(
              card(
-               style = "height: 32vh;",
+               style = "height: 33vh;",
                full_screen = TRUE,
-               card_header("# Farmers per training touch points"),
+               # Add farmer training icon to header and ensure text is on the same line
+               card_header(span(img(src = "farmer_training.png", height = "25px", style = "vertical-align: middle; margin-right: 5px;"), htmlOutput("touch_points_chart_title"))),
                card_body(
-                 # MODIFIED: Using uiOutput for dynamic content (plot or message)
                  uiOutput("touch_points_chart") %>%
                    withSpinner(type = 6, color = "#30804e",
                                hide.ui = FALSE) %>% as_fill_carrier()
@@ -267,6 +295,9 @@ server <- function(input, output, session) {
     clicked_point = NULL,
     clicked_district = NULL
   )
+  
+  # Remove screen_width reactive value and related observer.
+  # Responsive styling is now handled purely by CSS media queries.
   
   # Observe tab changes and update the related variables accordingly
   observe({
@@ -308,33 +339,44 @@ server <- function(input, output, session) {
       summarize(young_in_hh = sum(as.integer(young_in_hh), na.rm = T)) %>% pull(young_in_hh)
   })
   
-  # Display the national summary cards
-  # =======================================
-  output$nbr_farmers <- renderUI({
-    tagList(
-      h1(format(round(nbr_farmers_country()), big.mark = ",")),
-      p("Total # per country")
+  # Define common style for centering content in text output boxes
+  center_style <- "display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center;"
+  
+  # Simplified UI for National Statistics cards (Content only)
+  # No more `is_small_screen` checks in R; CSS handles responsiveness.
+  output$nbr_farmers_content <- renderUI({
+    div(class = "text-output-box",
+        div(class = "text-output-content",
+            div(class = "value", format(round(nbr_farmers_country()), big.mark = ",")),
+            div(class = "label", paste("Total # per country", subtitle_text()))
+        )
     )
   })
   
-  output$nbr_farmers_women <- renderUI({
-    tagList(
-      h1(format(round((nbr_farmers_women_country() * 100)/nbr_farmers_country()), big.mark = ",")),
-      p("Total # per country")
+  output$nbr_farmers_women_content <- renderUI({
+    div(class = "text-output-box",
+        div(class = "text-output-content",
+            div(class = "value", paste0(format(round((nbr_farmers_women_country() * 100)/nbr_farmers_country()), big.mark = ","), "%")),
+            div(class = "label", paste("Women Farmers", subtitle_text()))
+        )
     )
   })
   
-  output$nbr_farmers_young <- renderUI({
-    tagList(
-      h1(format(round((nbr_farmers_young_country() * 100)/nbr_farmers_country()), big.mark = ",")),
-      p("Total # per country")
+  output$nbr_farmers_young_content <- renderUI({
+    div(class = "text-output-box",
+        div(class = "text-output-content",
+            div(class = "value", paste0(format(round((nbr_farmers_young_country() * 100)/nbr_farmers_country()), big.mark = ","), "%")),
+            div(class = "label", paste("Youth Farmers", subtitle_text()))
+        )
     )
   })
   
-  output$youth_in_hh <- renderUI({
-    tagList(
-      h1(format(round(nbr_youth_hh_country()), big.mark = ",")),
-      p("Total # per country")
+  output$youth_in_hh_content <- renderUI({
+    div(class = "text-output-box",
+        div(class = "text-output-content",
+            div(class = "value", format(round(nbr_youth_hh_country()), big.mark = ",")),
+            div(class = "label", paste("Youth in Households", subtitle_text()))
+        )
     )
   })
   
@@ -358,6 +400,12 @@ server <- function(input, output, session) {
     data_coops$coop_size_px <- symbol_sizes[data_coops$category]
     data_cws$cws_size_px <- symbol_sizes[data_cws$category]
     
+    # define pop-up variables
+    data_coops$coop_size_var <- paste(format(data_coops$nbr_cooperative_members, 
+                                             big.mark = ",", scientific = FALSE),"farmers", sep = " ")
+    data_cws %<>% mutate(cws_size_var = round(actual_capacity/1000, 1)) %>%
+      mutate(cws_size_var = paste(format(cws_size_var, big.mark = ",", scientific = FALSE), "tonnes", sep = " "))
+    
     # Build the tmap object
     tmap_object <- tmap_mode("view") +
       tm_basemap("Esri.WorldTopoMap") +
@@ -378,7 +426,7 @@ server <- function(input, output, session) {
               size.scale = tm_scale_continuous(values.scale = 1),
               size.legend = tm_legend_hide(),
               popup.vars = c("Name" = "cooperative_name",
-                             "Members" = "nbr_cooperative_members"),
+                             "Members" = "coop_size_var"),
               group = "Cooperatives") +
       
       tm_shape(data_cws) +
@@ -387,7 +435,7 @@ server <- function(input, output, session) {
               size.scale = tm_scale_continuous(values.scale = 1),
               size.legend = tm_legend_hide(),
               popup.vars = c("Name" = "cws_name",
-                             "Capacity" = "actual_capacity"),
+                             "Capacity" = "cws_size_var"),
               group = "CWS") +
       
       tm_view(bbox = st_bbox(country)) +
@@ -577,6 +625,32 @@ server <- function(input, output, session) {
     }
   })
   
+  # Simplified UI for Farm Area content
+  output$farm_area_content <- renderUI({
+    # clean the result of farm_area variable
+    area <- farm_area() %>% (function(x) {
+      if (length(x) == 0 || is.na(x)) 0 else x
+    })()
+    
+    # Always use the .text-output-box and .text-output-content classes.
+    # Display icon in content area only when there is no data.
+    if (area <= 0) {
+      div(class = "text-output-box",
+          div(class = "text-output-content",
+              #img(src = "farm_area.png", height = "35px", style = "margin-bottom: 5px;"), # Icon when no data
+              div(class = "label", paste("No farm area data available", subtitle_text()))
+          )
+      )
+    } else {
+      div(class = "text-output-box",
+          div(class = "text-output-content",
+              div(class = "value", format(round(area, 1), big.mark = ",")),
+              div(class = "label", paste("Farm area in Ha", subtitle_text()))
+          )
+      )
+    }
+  })
+  
   coffee_trees <- reactive({
     if (rv$current_tab == "Cooperatives/CWS View" && !is.null(rv$clicked_point)) {
       if(rv$clicked_point$dataset == "data_coops") {
@@ -634,6 +708,7 @@ server <- function(input, output, session) {
   })
   
   # Observe clicks observers
+  #-----------------------------
   # 1. Coops/CWS map
   observe({
     req(rv$current_tab == "Cooperatives/CWS View")
@@ -733,33 +808,6 @@ server <- function(input, output, session) {
     }
   })
   
-  # MODIFIED: Logic for farm_area widget updated
-  output$farm_area <- renderUI({
-    # clean the result of farm_area variable
-    area <- farm_area() %>% (function(x) {
-      if (length(x) == 0 || is.na(x)) 0 else x
-    })()
-    
-    center_style <- "display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center;"
-    
-    # Check if area is empty, NA, or zero. Show icon only in this case.
-    if (area <= 0) {
-      div(
-        style = center_style,
-        # IMPORTANT: Replace 'area_icon.jpg' with your icon file in the www/ folder
-        img(src = "area_icon.jpg", height = "35px", style = "margin-bottom: 5px;"),
-        p(style = "font-size: 1.1em;", paste("No farm area data available", subtitle_text()))
-      )
-    } else {
-      # When data is available, do NOT show the icon.
-      div(
-        style = center_style,
-        h1(style="margin-bottom: 0;", format(round(area, 1), big.mark = ",")),
-        p(style = "font-size: 1.1em;", paste("Farm area in Ha", subtitle_text()))
-      )
-    }
-  })
-  
   # Helper function to set the correctly sort the tree age categories
   tree_age_order <- function(x) {
     factor(x, levels = c("less_3", "3_to_7", "8_to_15", "16_to_30", "more_30"))
@@ -769,7 +817,14 @@ server <- function(input, output, session) {
     sum(coffee_trees()$nbr_coffee_trees, na.rm = TRUE)
   })
   
-  # Use renderUI to conditionally display plot or a styled message
+  # Chart title for Coffee Trees chart
+  output$coffee_trees_chart_title <- renderUI({
+    total_formatted <- format(total_trees(), big.mark = ",")
+    chart_subtitle_text <- paste(total_formatted, "trees", subtitle_text())
+    span(style="font-size: 0.9em;", paste("Coffee trees:", chart_subtitle_text))
+  })
+  
+  # Display plot or a styled message
   output$coffee_trees_chart <- renderUI({
     total <- total_trees()
     
@@ -777,9 +832,8 @@ server <- function(input, output, session) {
       # Display message if no data
       div(
         style = "display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center;",
-        # IMPORTANT: Replace 'trees_icon.jpg' with your icon file in the www/ folder
-        img(src = "trees_icon.jpg", height = "50px", style="margin-bottom: 15px;"),
-        p(style = "font-size: 1.2em;", paste("No coffee tree data available", subtitle_text()))
+        img(src = "coffee_trees.png", height = "50px", style="margin-bottom: 15px;"),
+        p(style = "font-size: .8em;", paste("No coffee trees data available", subtitle_text()))
       )
     } else {
       # Display the plot if data is available
@@ -787,15 +841,12 @@ server <- function(input, output, session) {
     }
   })
   
-  # This now renders the plot to be displayed by the UI above
+  # This renders the plot to be displayed by the UI above
   output$coffee_trees_plot <- renderPlotly({
-    req(nrow(coffee_trees()) > 0, total_trees() > 0) # Ensure data exists before rendering
+    req(nrow(coffee_trees()) > 0, total_trees() > 0) 
     
     plot_data <- coffee_trees() %>%
       mutate(age_range_coffee_trees = tree_age_order(age_range_coffee_trees))
-    
-    total_formatted <- format(total_trees(), big.mark = ",")
-    chart_title <- paste("Total:", total_formatted, "trees", subtitle_text())
     
     plot_ly(plot_data,
             x = ~age_range_coffee_trees,
@@ -803,36 +854,47 @@ server <- function(input, output, session) {
             type = "bar",
             marker = list(color = "#3ea363")
     ) %>%
-      layout(title = list(text = chart_title, font = list(size = 14)),
-             xaxis = list(categoryorder = "array", categoryarray = levels(tree_age_order(""))),
-             yaxis = list(title = "# Coffee trees"),
-             margin = list(t = 50) # Add top margin to avoid title collision
+      layout(
+        xaxis = list(title = "", # Remove x-axis title
+                     categoryorder = "array",
+                     categoryarray = levels(tree_age_order(""))),
+        yaxis = list(title = "", # Remove y-axis title
+                     tickmode = "array",
+                     tickvals = c(min(plot_data$nbr_coffee_trees), max(plot_data$nbr_coffee_trees)),
+                     ticktext = c(
+                       paste0(round(min(plot_data$nbr_coffee_trees)/1000, 1), "k"),
+                       paste0(round(max(plot_data$nbr_coffee_trees)/1000, 1), "k")
+                     )),
+        margin = list(t = 20, l = 20) # Adjusted top margin
       )
   })
   
-  # Use renderUI to conditionally display plot or a styled message
+  # Chart title for Touch Points 
+  output$touch_points_chart_title <- renderUI({
+    chart_subtitle_text <- subtitle_text()
+    span(style="font-size: 0.9em;", paste("Touch points", chart_subtitle_text))
+  })
+  
+  # Display plot or a data missing message
   output$touch_points_chart <- renderUI({
     if (nrow(touch_points()) == 0) {
       div(
         style = "display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center;",
-        # IMPORTANT: Replace 'training_icon.jpg' with your icon file in the www/ folder
-        img(src = "training_icon.jpg", height = "50px", style="margin-bottom: 15px;"),
-        p(style = "font-size: 1.2em;", paste("No training data available", subtitle_text()))
+        img(src = "extension.png", height = "50px", style="margin-bottom: 15px;"),
+        p(style = "font-size: .8em;", paste("No training data available", subtitle_text()))
       )
     } else {
       plotlyOutput("touch_points_plot", height = "100%")
     }
   })
   
-  # This now renders the plot to be displayed by the UI above
+  # This renders the plot to be displayed by the UI above
   output$touch_points_plot <- renderPlotly({
-    req(nrow(touch_points()) > 0) # Ensure data exists
+    req(nrow(touch_points()) > 0) 
     
     sorted_data <- touch_points() %>%
       arrange(desc(frequency)) %>%
       mutate(color_index = row_number())
-    
-    chart_title <- paste("# Farmers per touch point", subtitle_text())
     
     plot_ly(sorted_data,
             x = ~reorder(training_topics, -frequency),
@@ -843,10 +905,17 @@ server <- function(input, output, session) {
               colorscale = "Viridis",
               showscale = FALSE
             )) %>%
-      layout(title = list(text = chart_title, font = list(size = 14)),
-             xaxis = list(title = "", categoryorder = "array", categoryarray = ~reorder(training_topics, -frequency)),
-             yaxis = list(title = "# Farmers"),
-             margin = list(t = 50) # Add top margin
+      layout(xaxis = list(title = "", # Remove x-axis title
+                          categoryorder = "array",
+                          categoryarray = ~reorder(training_topics, -frequency)),
+             yaxis = list(title = "", # Remove y-axis title
+                          tickmode = "array",
+                          tickvals = c(min(sorted_data$frequency), max(sorted_data$frequency)),
+                          ticktext = c(
+                            paste0(round(min(sorted_data$frequency)/1000, 1), "k"),
+                            paste0(round(max(sorted_data$frequency)/1000, 1), "k")
+                          )),
+             margin = list(t = 20, l = 20) # Adjusted top margin
       )
   })
 }
