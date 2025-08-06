@@ -7,7 +7,6 @@
 # In case more functionality is requested by the coffee team, the app could eventually
 # be migrated to ArcGIS dashboard or a dedicated R-Shiny server could be set up for it.
 #===============================================================================
-
 # Load the required packages
 if(!require("pacman")) install.packages("pacman")
 pacman::p_load(magrittr, dplyr, readr, stringr, tidyr, lubridate,
@@ -31,10 +30,10 @@ gs4_auth(path = tmp)# Authenticate with the service account
 # Load the input datasets from Google Sheets
 url <- "https://docs.google.com/spreadsheets/d/1S2tvQ2S2GBQffGXAxLTExDu0i24jHxj7NwG-gWPahD4"
 data_farms <- range_read(url, sheet = "Coffee_farms", range = "A1:AE")
-data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "A1:Y")
+data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "A1:Z")
 data_coops <- range_read(url, sheet = "Cooperatives", range = "A1:R")
 # Given farmers dataset is too big, use named ranges to avoid time-out in production
-ranges <- c("A:A","C:C", "D:D", "H:H", "I:I", "K:K", "S:S", "T:T", "Y:Y", "Z:Z")
+ranges <- c("A:A","C:C", "D:D", "E:E", "H:H", "I:I", "J:J", "L:L", "S:S", "W:W", "X:X", "Z:Z")
 
 # Read each range separately
 range_list <- lapply(ranges, function(r) {
