@@ -33,7 +33,7 @@ data_farms <- range_read(url, sheet = "Coffee_farms", range = "A1:AE")
 data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "A1:Z")
 data_coops <- range_read(url, sheet = "Cooperatives", range = "A1:R")
 # Given farmers dataset is too big, use named ranges to avoid time-out in production
-ranges <- c("A:A","C:C", "D:D", "E:E", "H:H", "I:I", "J:J", "L:L", "S:S", "W:W", "X:X", "Z:Z")
+ranges <- c("A:A", "C:C", "D:D", "E:E", "H:H", "I:I", "J:J", "L:L", "S:S", "W:W", "X:X", "Z:Z")
 
 # Read each range separately
 range_list <- lapply(ranges, function(r) {
