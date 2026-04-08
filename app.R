@@ -28,20 +28,51 @@ writeBin(decoded_raw, tmp) # Write decoded text to the created temporary file as
 gs4_auth(path = tmp)# Authenticate with the service account
 
 # Load the input datasets from Google Sheets
-url <- "https://docs.google.com/spreadsheets/d/1S2tvQ2S2GBQffGXAxLTExDu0i24jHxj7NwG-gWPahD4"
+url <- "1S2tvQ2S2GBQffGXAxLTExDu0i24jHxj7NwG-gWPahD4"
 data_farms <- range_read(url, sheet = "Coffee_farms", range = "A1:AE")
 data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "A1:Z")
 data_coops <- range_read(url, sheet = "Cooperatives", range = "A1:R")
-# Given farmers dataset is too big, use named ranges to avoid time-out in production
-ranges <- c("A:A", "C:C", "D:D", "E:E", "H:H", "I:I", "J:J", "L:L", "S:S", "W:W", "X:X", "Z:Z")
+# Given farmers dataset is too big to read in one go, use the national_id column
+# to determine the number of data rows, then read the sheet in row chunks so that
+# blank cells in other columns are preserved as NA within each chunk.
+national_id_col <- range_read(url, sheet = "Coffee farmers", range = "A:A")
+n_data_rows <- nrow(national_id_col)
+chunk_size <- 5000
 
-# Read each range separately
-range_list <- lapply(ranges, function(r) {
-  range_read(url, sheet = "Coffee farmers", range = r)
+# Read the header once, then apply it to each chunk read without column names.
+header <- range_read(url, sheet = "Coffee farmers", range = "A1:Z1", col_names = FALSE) %>%
+  unlist(use.names = FALSE)
+
+starts <- seq(2, n_data_rows + 1, by = chunk_size)
+ends <- pmin(starts + chunk_size - 1, n_data_rows + 1)
+row_ranges <- paste0("A", starts, ":Z", ends)
+
+chunk_list <- lapply(row_ranges, function(r) {
+  chunk <- range_read(url, sheet = "Coffee farmers", range = r, col_names = FALSE)
+  names(chunk) <- header
+  chunk
 })
 
-# Combine by columns (assuming same number of rows)
-data_farmers <- do.call(cbind, range_list)
+data_farmers <- bind_rows(chunk_list)
+
+# Some Google Sheets reads can produce list columns when cell types vary.
+# Normalize join keys to plain character vectors before downstream joins.
+normalize_sheet_id <- function(x) {
+  if (is.list(x)) {
+    vapply(
+      x,
+      function(value) {
+        if (length(value) == 0 || all(is.na(value))) NA_character_ else as.character(value[[1]])
+      },
+      character(1)
+    )
+  } else {
+    as.character(x)
+  }
+}
+
+data_farmers$national_id <- normalize_sheet_id(data_farmers$national_id)
+data_farms$national_id <- normalize_sheet_id(data_farms$national_id)
 
 # convert coops and CWS data to sf
 data_coops %<>% st_as_sf(coords = c("longitude", "latitude"), sf_column_name = "geom", crs = 4326, remove = T, na.fail = F) %>%
