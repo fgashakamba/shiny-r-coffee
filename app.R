@@ -54,19 +54,43 @@ data_coops <- range_read(url, sheet = "Cooperatives", range = "A1:R")
 national_id_col <- range_read(url, sheet = "Coffee farmers", range = "A:A")
 n_data_rows <- nrow(national_id_col)
 chunk_size <- 5000
+farmer_col_names <- c(
+  "national_id", "farmer_col_b", "district", "gender", "age", "farmer_col_f",
+  "farmer_col_g", "young_in_hh", "farmer_col_i", "farmer_col_j", "farmer_col_k", "farmer_col_l",
+  "farmer_col_m", "farmer_col_n", "farmer_col_o", "farmer_col_p", "farmer_col_q", "farmer_col_r",
+  "training_topics", "farmer_col_t", "farmer_col_u", "farmer_col_v", "farmer_cws", "cooperative",
+  "farmer_col_y", "farmer_col_z"
+)
+farmer_col_types <- paste(rep("c", length(farmer_col_names)), collapse = "")
 
-# The first chunk includes the header row. Remaining chunks are data-only.
+# Read all chunks with explicit names and character types. This avoids name
+# repair warnings from blank or duplicated sheet headers and keeps empty cells as NA.
 first_chunk_end <- min(chunk_size + 1, n_data_rows + 1)
-first_chunk <- range_read(url, sheet = "Coffee farmers", range = paste0("A1:Z", first_chunk_end))
-header <- names(first_chunk)
+first_chunk <- range_read(
+  url,
+  sheet = "Coffee farmers",
+  range = paste0("A1:Z", first_chunk_end),
+  col_names = FALSE,
+  col_types = farmer_col_types,
+  .name_repair = "minimal"
+)
+names(first_chunk) <- farmer_col_names
+first_chunk <- first_chunk %>% slice(-1)
 
 starts <- seq(first_chunk_end + 1, n_data_rows + 1, by = chunk_size)
 ends <- pmin(starts + chunk_size - 1, n_data_rows + 1)
 row_ranges <- paste0("A", starts, ":Z", ends)
 
 chunk_list <- lapply(row_ranges, function(r) {
-  chunk <- range_read(url, sheet = "Coffee farmers", range = r, col_names = FALSE)
-  names(chunk) <- header
+  chunk <- range_read(
+    url,
+    sheet = "Coffee farmers",
+    range = r,
+    col_names = FALSE,
+    col_types = farmer_col_types,
+    .name_repair = "minimal"
+  )
+  names(chunk) <- farmer_col_names
   chunk
 })
 
