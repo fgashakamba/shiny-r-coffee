@@ -18,14 +18,30 @@ pacman::p_load(magrittr, dplyr, readr, stringr, tidyr, lubridate,
 #=========================================
 # Authenticate google sheets with a service account
 #---------------------------------------------------
-# The JSON service account file has been encoded to base64 and stored in the
-# environment variable called "GSHEET_SERVICE_JSON_BASE64" like this:
-#cat(openssl::base64_encode(readChar("shiny-gsheets-service-account-file.json", file.info(json_path)$size)))
-b64 <- Sys.getenv("GSHEET_SERVICE_JSON_BASE64") # Read the encoded service account json file
-decoded_raw <- base64_decode(b64) # Decode the JSON string
-tmp <- tempfile(fileext = ".json") # Create a temporary file
-writeBin(decoded_raw, tmp) # Write decoded text to the created temporary file as binary
-gs4_auth(path = tmp)# Authenticate with the service account
+# In Posit Connect Cloud, store the base64-encoded service account JSON in the
+# "GSHEET_SERVICE_JSON_BASE64" variable. For local development, fall back to the
+# JSON file in the project directory when the variable is not set.
+json_path <- "shiny-gsheets-service-account-file.json"
+b64 <- Sys.getenv("GSHEET_SERVICE_JSON_BASE64")
+
+if (nzchar(b64)) {
+  decoded_raw <- base64_decode(b64)
+  tmp <- tempfile(fileext = ".json")
+  writeBin(decoded_raw, tmp)
+  on.exit(unlink(tmp), add = TRUE)
+  gs4_auth(path = tmp)
+} else if (file.exists(json_path)) {
+  gs4_auth(path = json_path)
+} else {
+  stop(
+    paste(
+      "Google Sheets authentication is not configured.",
+      "Set GSHEET_SERVICE_JSON_BASE64 in Posit Connect Cloud or provide",
+      shQuote(json_path),
+      "for local development."
+    )
+  )
+}
 
 # Load the input datasets from Google Sheets
 url <- "1S2tvQ2S2GBQffGXAxLTExDu0i24jHxj7NwG-gWPahD4"
