@@ -55,11 +55,12 @@ national_id_col <- range_read(url, sheet = "Coffee farmers", range = "A:A")
 n_data_rows <- nrow(national_id_col)
 chunk_size <- 5000
 
-# Read the header once, then apply it to each chunk read without column names.
-header <- range_read(url, sheet = "Coffee farmers", range = "A1:Z1", col_names = FALSE) %>%
-  unlist(use.names = FALSE)
+# The first chunk includes the header row. Remaining chunks are data-only.
+first_chunk_end <- min(chunk_size + 1, n_data_rows + 1)
+first_chunk <- range_read(url, sheet = "Coffee farmers", range = paste0("A1:Z", first_chunk_end))
+header <- names(first_chunk)
 
-starts <- seq(2, n_data_rows + 1, by = chunk_size)
+starts <- seq(first_chunk_end + 1, n_data_rows + 1, by = chunk_size)
 ends <- pmin(starts + chunk_size - 1, n_data_rows + 1)
 row_ranges <- paste0("A", starts, ":Z", ends)
 
@@ -69,7 +70,7 @@ chunk_list <- lapply(row_ranges, function(r) {
   chunk
 })
 
-data_farmers <- bind_rows(chunk_list)
+data_farmers <- bind_rows(c(list(first_chunk), chunk_list))
 
 # Some Google Sheets reads can produce list columns when cell types vary.
 # Normalize join keys to plain character vectors before downstream joins.
