@@ -2,3 +2,4 @@
 .Rhistory
 shiny-gsheets-service-account-file.json
 gsheet_key_base64.txt
+data_cache/

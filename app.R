@@ -1,119 +1,81 @@
-# This is a draft of the Coffee dashboard.
-# The focus of this dashboard is to allow managers to track KPIs of field teams
+# This is the production version of the Coffee interactive dashboard.
+# The focus of this dashboard is to allow COF managers to track KPIs of field teams
 # on extension activities (i.e. enrollment and training of farmers).
 # An emphasis will be put on presenting the data visually on a map.
-# The dashboard is built using the Shiny web framework. Currently, the app is developed in R
-# for quick prototyping by it will be converted to Python (still using Shiny) for deployment on Dataiku
-# In case more functionality is requested by the coffee team, the app could eventually
-# be migrated to ArcGIS dashboard or a dedicated R-Shiny server could be set up for it.
+# The dashboard is built using the Shiny web framework. 
+# It is deployed on a personal VPS and it's reached the URL 
+# https://geodashlabs.com/coffeedash/
 #===============================================================================
 # Load the required packages
 if(!require("pacman")) install.packages("pacman")
 pacman::p_load(magrittr, dplyr, readr, stringr, tidyr, lubridate,
                shiny, shinyjs, shinycssloaders, plotly,bslib,
                leaflet, sf, nngeo, tmap, viridis,
-               googlesheets4, jsonlite, openssl, janitor, classInt)
+               janitor, classInt)
 
-# Load coffee kpi data
-#=========================================
-# Authenticate google sheets with a service account
-#---------------------------------------------------
-# In Posit Connect Cloud, store the base64-encoded service account JSON in the
-# "GSHEET_SERVICE_JSON_BASE64" variable. For local development, fall back to the
-# JSON file in the project directory when the variable is not set.
-json_path <- "shiny-gsheets-service-account-file.json"
-b64 <- Sys.getenv("GSHEET_SERVICE_JSON_BASE64")
+# ------------load geospatial data-----------
+# first define the app root direction manually
+app_dir <- if (Sys.getenv("SHINY_PORT") != "") "/srv/shiny-server/coffeedash" else getwd()
 
-if (nzchar(b64)) {
-  decoded_raw <- base64_decode(b64)
-  tmp <- tempfile(fileext = ".json")
-  writeBin(decoded_raw, tmp)
-  on.exit(unlink(tmp), add = TRUE)
-  gs4_auth(path = tmp)
-} else if (file.exists(json_path)) {
-  gs4_auth(path = json_path)
-} else {
+# read basemap layers
+country <- st_read(paste(app_dir,"data_wgs84", "RW_country.gpkg", sep = "/"), layer = "country")
+lakes <- st_read(paste(app_dir,"data_wgs84", "RW_lakes.gpkg", sep = "/"), layer = "lakes")
+np <- st_read(paste(app_dir,"data_wgs84", "RW_national_parks.gpkg", sep = "/"), layer = "np")
+districts <- st_read(paste(app_dir,"data_wgs84", "RW_districts.gpkg", sep = "/"), layer = "districts")
+
+# clean and prepare the geospatial data
+country %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
+lakes %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
+np %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
+districts %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
+
+# harmonize district names with the names in the farmers dataset
+districts %<>% mutate(district = str_to_lower(district))
+
+# Load coffee KPI data from a locally refreshed snapshot that is updated daily
+cache_path <- Sys.getenv(
+  "COFFEE_DASH_DATA_RDS",
+  unset = file.path(app_dir, "data_cache", "google_sheets_snapshot.rds")
+)
+
+if (!file.exists(cache_path)) {
   stop(
     paste(
-      "Google Sheets authentication is not configured.",
-      "Set GSHEET_SERVICE_JSON_BASE64 in Posit Connect Cloud or provide",
-      shQuote(json_path),
-      "for local development."
+      "Cached data file not found:",
+      shQuote(cache_path),
+      "Run scripts/refresh_google_sheets_cache.R before starting the app."
     )
   )
 }
 
-# Load the input datasets from Google Sheets
-url <- "1S2tvQ2S2GBQffGXAxLTExDu0i24jHxj7NwG-gWPahD4"
-data_farms <- range_read(url, sheet = "Coffee_farms", range = "A1:AE")
-data_cws <- range_read(url, sheet = "Coffee Washing Stations", range = "A1:Z")
-data_coops <- range_read(url, sheet = "Cooperatives", range = "A1:R")
-# Given farmers dataset is too big to read in one go, use the national_id column
-# to determine the number of data rows, then read the sheet in row chunks so that
-# blank cells in other columns are preserved as NA within each chunk.
-national_id_col <- range_read(url, sheet = "Coffee farmers", range = "A:A")
-n_data_rows <- nrow(national_id_col)
-chunk_size <- 5000
-farmer_col_names <- c(
-  "national_id", "farmer_col_b", "district", "gender", "age", "farmer_col_f",
-  "farmer_col_g", "young_in_hh", "farmer_col_i", "farmer_col_j", "farmer_col_k", "farmer_col_l",
-  "farmer_col_m", "farmer_col_n", "farmer_col_o", "farmer_col_p", "farmer_col_q", "farmer_col_r",
-  "training_topics", "farmer_col_t", "farmer_col_u", "farmer_col_v", "farmer_cws", "cooperative",
-  "farmer_col_y", "farmer_col_z"
-)
-farmer_col_types <- paste(rep("c", length(farmer_col_names)), collapse = "")
+google_sheet_cache <- readRDS(cache_path)
+required_cache_items <- c("data_farms", "data_cws", "data_coops", "data_farmers")
 
-# Read all chunks with explicit names and character types. This avoids name
-# repair warnings from blank or duplicated sheet headers and keeps empty cells as NA.
-first_chunk_end <- min(chunk_size + 1, n_data_rows + 1)
-first_chunk <- range_read(
-  url,
-  sheet = "Coffee farmers",
-  range = paste0("A1:Z", first_chunk_end),
-  col_names = FALSE,
-  col_types = farmer_col_types,
-  .name_repair = "minimal"
-)
-names(first_chunk) <- farmer_col_names
-first_chunk <- first_chunk %>% slice(-1)
-
-starts <- seq(first_chunk_end + 1, n_data_rows + 1, by = chunk_size)
-ends <- pmin(starts + chunk_size - 1, n_data_rows + 1)
-row_ranges <- paste0("A", starts, ":Z", ends)
-
-chunk_list <- lapply(row_ranges, function(r) {
-  chunk <- range_read(
-    url,
-    sheet = "Coffee farmers",
-    range = r,
-    col_names = FALSE,
-    col_types = farmer_col_types,
-    .name_repair = "minimal"
-  )
-  names(chunk) <- farmer_col_names
-  chunk
-})
-
-data_farmers <- bind_rows(c(list(first_chunk), chunk_list))
-
-# Some Google Sheets reads can produce list columns when cell types vary.
-# Normalize join keys to plain character vectors before downstream joins.
-normalize_sheet_id <- function(x) {
-  if (is.list(x)) {
-    vapply(
-      x,
-      function(value) {
-        if (length(value) == 0 || all(is.na(value))) NA_character_ else as.character(value[[1]])
-      },
-      character(1)
+if (!all(required_cache_items %in% names(google_sheet_cache))) {
+  stop(
+    paste(
+      "Cached data file is missing required objects.",
+      "Expected:",
+      paste(required_cache_items, collapse = ", ")
     )
-  } else {
-    as.character(x)
-  }
+  )
 }
 
-data_farmers$national_id <- normalize_sheet_id(data_farmers$national_id)
-data_farms$national_id <- normalize_sheet_id(data_farms$national_id)
+data_farms <- google_sheet_cache$data_farms
+data_cws <- google_sheet_cache$data_cws
+data_coops <- google_sheet_cache$data_coops
+data_farmers <- google_sheet_cache$data_farmers
+
+message("Loaded cached KPI snapshot: ", cache_path)
+if (!is.null(google_sheet_cache$refreshed_at)) {
+  message("Cached KPI snapshot refreshed at: ", google_sheet_cache$refreshed_at)
+}
+
+# convert numeric columns that are read as character to numeric type
+data_farms %<>% mutate(across(c(area_ares, nbr_coffee_trees), ~ as.numeric(.)))
+data_farmers %<>% mutate(across(c(age, young_in_hh), ~ as.numeric(.)))
+data_cws %<>% mutate(across(c(actual_capacity), ~ as.numeric(.)))
+data_coops %<>% mutate(across(c(nbr_cooperative_members), ~ as.numeric(.)))
 
 # convert coops and CWS data to sf
 data_coops %<>% st_as_sf(coords = c("longitude", "latitude"), sf_column_name = "geom", crs = 4326, remove = T, na.fail = F) %>%
@@ -123,6 +85,12 @@ data_cws %<>% st_as_sf(coords = c("longitude", "latitude"), sf_column_name = "ge
 data_farms %<>% st_as_sf(coords = c("longitude", "latitude"), sf_column_name = "geom", crs = 4326, remove = T, na.fail = F) %>%
   filter(!st_is_empty(geom)) %>% st_transform(crs = 32736)
 
+# Precompute WGS84 copies for faster leaflet rendering on tab switches.
+country_4326 <- st_transform(country, 4326)
+lakes_4326 <- st_transform(lakes, 4326)
+np_4326 <- st_transform(np, 4326)
+districts_4326 <- st_transform(districts, 4326)
+data_farms_4326 <- st_transform(data_farms, 4326)
 
 # since one farmer (national id) can have multiple farms, we need to aggregate the data
 # to get the total area and number of coffee trees per farmer (per age of trees)
@@ -137,20 +105,23 @@ data_farmers %<>% mutate(cooperative_id = str_replace_all(str_squish(str_to_lowe
 data_farmers_full <- data_farmers %>% select(national_id, district, training_topics, cooperative_id, cws_id) %>%
   left_join(data_farms_stats, by = "national_id")
 
-# load geospatial data
-country <- st_read(paste(getwd(),"data_wgs84", "RW_country.gpkg", sep = "/"), layer = "country")
-lakes <- st_read(paste(getwd(),"data_wgs84", "RW_lakes.gpkg", sep = "/"), layer = "lakes")
-np <- st_read(paste(getwd(),"data_wgs84", "RW_national_parks.gpkg", sep = "/"), layer = "np")
-districts <- st_read(paste(getwd(),"data_wgs84", "RW_districts.gpkg", sep = "/"), layer = "districts")
-
-# clean and prepare the geospatial data
-country %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
-lakes %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
-np %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
-districts %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
-
-# harmonize district names with the names in the farmers dataset
-districts %<>% mutate(district = str_to_lower(district))
+# Cap map point count to keep Farms tab responsive on Shiny Server.
+# this can be tuned on the server with MAX_FARM_MAP_POINTS (default: 12000).
+max_farm_map_points <- suppressWarnings(as.integer(Sys.getenv("MAX_FARM_MAP_POINTS", "12000")))
+if (is.na(max_farm_map_points) || max_farm_map_points < 1000) {
+  max_farm_map_points <- 12000
+}
+if (nrow(data_farms_4326) > max_farm_map_points) {
+  set.seed(42)
+  data_farms_map_4326 <- dplyr::slice_sample(data_farms_4326, n = max_farm_map_points)
+  message(
+    "Farms map points capped: displaying ", format(max_farm_map_points, big.mark = ","),
+    " of ", format(nrow(data_farms_4326), big.mark = ","),
+    " points (MAX_FARM_MAP_POINTS)."
+  )
+} else {
+  data_farms_map_4326 <- data_farms_4326
+}
 
 # BUILD THE DASHBOARD USING SHINY WEB FRAMEWORK
 #=================================================
@@ -360,6 +331,25 @@ ui <- fluidPage(
 
 # Server processing
 server <- function(input, output, session) {
+  # Some htmlwidgets/tmap combinations can emit a benign warning during
+  # Shiny widget rendering on some server package versions.
+  # Muffle only this known warning so it doesn't halt the app when warnings
+  # are promoted to errors in the runtime environment.
+  quiet_append_content_warning <- function(expr) {
+    withCallingHandlers(
+      expr,
+      warning = function(w) {
+        if (grepl(
+          "Ignoring appended content; appendContent can't be used in a Shiny render call",
+          conditionMessage(w),
+          fixed = TRUE
+        )) {
+          invokeRestart("muffleWarning")
+        }
+      }
+    )
+  }
+
   # initialize some reactive variables
   rv <- reactiveValues(
     current_tab = "Cooperatives/CWS View",
@@ -448,7 +438,7 @@ server <- function(input, output, session) {
   })
   
   # render the cws/coops map
-  output$map_cws <- renderLeaflet({
+  output$map_cws <- renderLeaflet(quiet_append_content_warning({
     # Define symbol sizes to use in both map and legend
     symbol_sizes <- c(10, 16, 22)
     
@@ -474,8 +464,8 @@ server <- function(input, output, session) {
       mutate(cws_size_var = paste(format(cws_size_var, big.mark = ",", scientific = FALSE), "tonnes", sep = " "))
     
     # Build the tmap object
-    tmap_object <- tmap_mode("view") +
-      tm_basemap("Esri.WorldTopoMap") +
+    tmap_mode("view")
+    tmap_object <- tm_basemap("Esri.WorldTopoMap") +
       tm_shape(districts) +
       tm_borders(col = "#A76948", fill_alpha = .8) +
       tm_shape(lakes) +
@@ -551,7 +541,7 @@ server <- function(input, output, session) {
       addLayersControl(overlayGroups = c("Cooperatives", "CWS"),
                        options = layersControlOptions(collapsed = FALSE)) %>%
       addControl(html = combined_legend_html, position = "bottomright")
-  })
+  }))
   
   # Helper function to generate the HTML for the custom legend
   #-------------------------------------------------------------------------------
@@ -617,34 +607,52 @@ server <- function(input, output, session) {
   
   # render the farms map
   output$map_farms <- renderLeaflet({
-    tmap_object <- tm_shape(districts) +
-      tm_borders(col = "#A76948", fill_alpha = .6) +
-      tm_fill(col = "#A76948",
-              fill_alpha = .2,
-              id = "district") +
-      
-      tm_shape(lakes) +
-      tm_polygons(col = "#2CA2E6",
-                  fill_alpha = .6,
-                  popup.vars = c("Lake" = "name")) +
-      
-      tm_shape(np) +
-      tm_polygons(col = "#085e27",
-                  fill_alpha = .6,
-                  popup.vars = c("National Park" = "name")) +
-      
-      tm_shape(country) +
-      tm_borders(lwd = 2) +
-      
-      tm_shape(data_farms) +
-      tm_dots(col = "#011e0b",
-              fill_alpha = .6,
-              size = 0.1) +
-      
-      tm_view(bbox = st_bbox(country)) +
-      tm_basemap("Esri.WorldTopoMap")
-    
-    leaflet_map <- tmap_leaflet(tmap_object)
+    bbox <- st_bbox(country_4326)
+    xmin <- as.numeric(bbox[["xmin"]])
+    ymin <- as.numeric(bbox[["ymin"]])
+    xmax <- as.numeric(bbox[["xmax"]])
+    ymax <- as.numeric(bbox[["ymax"]])
+    leaflet(options = leafletOptions(preferCanvas = TRUE)) %>%
+      addProviderTiles(providers$Esri.WorldTopoMap) %>%
+      addPolygons(
+        data = districts_4326,
+        color = "#A76948",
+        weight = 1,
+        fillColor = "#A76948",
+        fillOpacity = 0.2,
+        layerId = ~district
+      ) %>%
+      addPolygons(
+        data = lakes_4326,
+        color = "#2CA2E6",
+        weight = 1,
+        fillColor = "#2CA2E6",
+        fillOpacity = 0.6,
+        popup = ~name
+      ) %>%
+      addPolygons(
+        data = np_4326,
+        color = "#085e27",
+        weight = 1,
+        fillColor = "#085e27",
+        fillOpacity = 0.6,
+        popup = ~name
+      ) %>%
+      addPolylines(
+        data = country_4326,
+        color = "#A76948",
+        weight = 2,
+        fill = FALSE
+      ) %>%
+      addCircleMarkers(
+        data = data_farms_map_4326,
+        radius = 2,
+        stroke = FALSE,
+        fillOpacity = 0.6,
+        fillColor = "#011e0b",
+        clusterOptions = markerClusterOptions(disableClusteringAtZoom = 12)
+      ) %>%
+      fitBounds(xmin, ymin, xmax, ymax)
   })
   
   # Get the clicked district name
@@ -873,9 +881,8 @@ server <- function(input, output, session) {
       leafletProxy("map_farms") %>%
         clearGroup("highlighted_district") %>%
         addPolygons(
-          data = districts %>%
-            filter(district == rv$clicked_district) %>%
-            st_transform(crs = 4326),
+          data = districts_4326 %>%
+            filter(district == rv$clicked_district),
           fillColor = "#FF9933",
           fillOpacity = 0.7,
           weight = 3,
