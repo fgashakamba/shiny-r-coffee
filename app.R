@@ -10,7 +10,7 @@
 if(!require("pacman")) install.packages("pacman")
 pacman::p_load(magrittr, dplyr, readr, stringr, tidyr, lubridate,
                shiny, shinyjs, shinycssloaders, plotly,bslib,
-               leaflet, sf, nngeo, tmap, viridis,
+               leaflet, sf, nngeo, viridis,
                janitor, classInt)
 
 # ------------load geospatial data-----------
@@ -22,12 +22,6 @@ country <- st_read(paste(app_dir,"data_wgs84", "RW_country.gpkg", sep = "/"), la
 lakes <- st_read(paste(app_dir,"data_wgs84", "RW_lakes.gpkg", sep = "/"), layer = "lakes")
 np <- st_read(paste(app_dir,"data_wgs84", "RW_national_parks.gpkg", sep = "/"), layer = "np")
 districts <- st_read(paste(app_dir,"data_wgs84", "RW_districts.gpkg", sep = "/"), layer = "districts")
-
-# clean and prepare the geospatial data
-country %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
-lakes %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
-np %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
-districts %<>% st_zm(drop = T, what = "ZM") %>%  st_make_valid(.) %>% st_transform(crs = 32736)
 
 # harmonize district names with the names in the farmers dataset
 districts %<>% mutate(district = str_to_lower(district))
@@ -85,12 +79,29 @@ data_cws %<>% st_as_sf(coords = c("longitude", "latitude"), sf_column_name = "ge
 data_farms %<>% st_as_sf(coords = c("longitude", "latitude"), sf_column_name = "geom", crs = 4326, remove = T, na.fail = F) %>%
   filter(!st_is_empty(geom)) %>% st_transform(crs = 32736)
 
+# Assign unique IDs for faster lookup during clicks
+data_coops$id <- paste0("coop_", seq_len(nrow(data_coops)))
+data_cws$id <- paste0("cws_", seq_len(nrow(data_cws)))
+
 # Precompute WGS84 copies for faster leaflet rendering on tab switches.
 country_4326 <- st_transform(country, 4326)
 lakes_4326 <- st_transform(lakes, 4326)
 np_4326 <- st_transform(np, 4326)
 districts_4326 <- st_transform(districts, 4326)
 data_farms_4326 <- st_transform(data_farms, 4326)
+data_coops_4326 <- st_transform(data_coops, 4326)
+data_cws_4326 <- st_transform(data_cws, 4326)
+
+# Pre-calculate Map 1 visualization parameters (Jenks breaks)
+symbol_sizes <- c(10, 16, 22)
+cws_breaks <- classInt::classIntervals(data_cws$actual_capacity, n = 3, style = "jenks")$brks
+coop_breaks <- classInt::classIntervals(data_coops$nbr_cooperative_members, n = 3, style = "jenks")$brks
+
+data_cws_4326$category <- cut(data_cws_4326$actual_capacity, breaks = cws_breaks, labels = FALSE, include.lowest = TRUE)
+data_coops_4326$category <- cut(data_coops_4326$nbr_cooperative_members, breaks = coop_breaks, labels = FALSE, include.lowest = TRUE)
+
+data_coops_4326$size_px <- symbol_sizes[data_coops_4326$category]
+data_cws_4326$size_px <- symbol_sizes[data_cws_4326$category]
 
 # since one farmer (national id) can have multiple farms, we need to aggregate the data
 # to get the total area and number of coffee trees per farmer (per age of trees)
@@ -331,25 +342,6 @@ ui <- fluidPage(
 
 # Server processing
 server <- function(input, output, session) {
-  # Some htmlwidgets/tmap combinations can emit a benign warning during
-  # Shiny widget rendering on some server package versions.
-  # Muffle only this known warning so it doesn't halt the app when warnings
-  # are promoted to errors in the runtime environment.
-  quiet_append_content_warning <- function(expr) {
-    withCallingHandlers(
-      expr,
-      warning = function(w) {
-        if (grepl(
-          "Ignoring appended content; appendContent can't be used in a Shiny render call",
-          conditionMessage(w),
-          fixed = TRUE
-        )) {
-          invokeRestart("muffleWarning")
-        }
-      }
-    )
-  }
-
   # initialize some reactive variables
   rv <- reactiveValues(
     current_tab = "Cooperatives/CWS View",
@@ -438,110 +430,60 @@ server <- function(input, output, session) {
   })
   
   # render the cws/coops map
-  output$map_cws <- renderLeaflet(quiet_append_content_warning({
-    # Define symbol sizes to use in both map and legend
-    symbol_sizes <- c(10, 16, 22)
-    
-    # Calculate Jenks natural breaks for three classes
-    cws_breaks <- classInt::classIntervals(data_cws$actual_capacity, n = 3, style = "jenks")$brks
-    coop_breaks <- classInt::classIntervals(data_coops$nbr_cooperative_members, n = 3, style = "jenks")$brks
-    
-    # Create category column based on Jenks breaks. include.lowest=T ensures the lowest values are included.
-    data_cws$category <- cut(data_cws$actual_capacity, breaks = cws_breaks,
-                             labels = FALSE, include.lowest = TRUE)
-    data_coops$category <- cut(data_coops$nbr_cooperative_members,
-                               breaks = coop_breaks,
-                               labels = FALSE, include.lowest = TRUE)
-    
-    # add a size_px column to hold the symbol size values in pixels
-    data_coops$coop_size_px <- symbol_sizes[data_coops$category]
-    data_cws$cws_size_px <- symbol_sizes[data_cws$category]
-    
-    # define pop-up variables
-    data_coops$coop_size_var <- paste(format(data_coops$nbr_cooperative_members, 
-                                             big.mark = ",", scientific = FALSE),"farmers", sep = " ")
-    data_cws %<>% mutate(cws_size_var = round(actual_capacity/1000, 1)) %>%
-      mutate(cws_size_var = paste(format(cws_size_var, big.mark = ",", scientific = FALSE), "tonnes", sep = " "))
-    
-    # Build the tmap object
-    tmap_mode("view")
-    tmap_object <- tm_basemap("Esri.WorldTopoMap") +
-      tm_shape(districts) +
-      tm_borders(col = "#A76948", fill_alpha = .8) +
-      tm_shape(lakes) +
-      tm_polygons(fill = "#2CA2E6", fill_alpha = .2,
-                  popup.vars = c("Lake" = "name"), id = "name") +
-      tm_shape(np) +
-      tm_polygons(fill = "#158849", fill_alpha = .2,
-                  popup.vars = c("National Park" = "name"), id = "name") +
-      tm_shape(country) +
-      tm_borders(col = "#A76948", lwd = 2, fill_alpha = .6) +
-      
-      tm_shape(data_coops) +
-      tm_dots(fill = "#063b57",
-              size       = "coop_size_px",
-              size.scale = tm_scale_continuous(values.scale = 1),
-              size.legend = tm_legend_hide(),
-              popup.vars = c("Name" = "cooperative_name",
-                             "Members" = "coop_size_var"),
-              group = "Cooperatives") +
-      
-      tm_shape(data_cws) +
-      tm_dots(fill = "#adcb17",
-              size       = "cws_size_px",
-              size.scale = tm_scale_continuous(values.scale = 1),
-              size.legend = tm_legend_hide(),
-              popup.vars = c("Name" = "cws_name",
-                             "Capacity" = "cws_size_var"),
-              group = "CWS") +
-      
-      tm_view(bbox = st_bbox(country)) +
-      tm_layout(frame = FALSE) +
-      tm_layout(legend.show = FALSE)
-    
-    # Convert to leaflet
-    leaflet_map <- tmap_leaflet(tmap_object)
-    
-    # Create legend labels from the Jenks break values
+  output$map_cws <- renderLeaflet({
+    # 1. Create legend labels from the Jenks break values
     coop_labels <- c(
       paste(round(coop_breaks[1]), "-", round(coop_breaks[2]), "members"),
-      paste(round(coop_breaks[2]) + 1, "-", round(coop_breaks[3]), "members"),
-      paste(round(coop_breaks[3]) + 1, "-", round(coop_breaks[4]), "members")
+      paste(round(coop_breaks[2]), "-", round(coop_breaks[3]), "members"),
+      paste(round(coop_breaks[3]), "-", round(coop_breaks[4]), "members")
     )
+
     cws_labels <- c(
       paste(round(cws_breaks[1]/1000), "-", round(cws_breaks[2]/1000), "Tonnes"),
       paste(round(cws_breaks[2]/1000), "-", round(cws_breaks[3]/1000), "Tonnes"),
       paste(round(cws_breaks[3]/1000), "-", round(cws_breaks[4]/1000), "Tonnes")
     )
     
-    # Use the same symbol sizes as defined in the scale
-    coop_legend <- addLegendCustom(
-      map = NULL, position = NULL,
-      size_values = symbol_sizes,
-      labels = coop_labels,
-      color = "#063b57",
-      title = "Cooperatives"
-    )
-    cws_legend <- addLegendCustom(
-      map = NULL, position = NULL,
-      size_values = symbol_sizes,
-      labels = cws_labels,
-      color = "#adcb17",
-      title = "CWS Capacity"
-    )
-    combined_legend_html <- paste0(
-      "<div style='display: flex; justify-content: center; align-items: flex-start;
-              background: rgba(255, 255, 255, 0.2); padding: 5px; border-radius: 5px;'>",
-      coop_legend, cws_legend, "</div>"
-    )
-    
-    # add a layer control widget but remove the base layers from the list of toggleble layers
-    leaflet_map %>%
-      removeLayersControl() %>%  # Remove the existing layer control first
-      addLayersControl(overlayGroups = c("Cooperatives", "CWS"),
-                       options = layersControlOptions(collapsed = FALSE)) %>%
+    # 2. Build the combined legend HTML
+    coop_legend_html <- addLegendCustom(NULL, NULL, symbol_sizes, coop_labels, "#063b57", "Cooperatives")
+    cws_legend_html <- addLegendCustom(NULL, NULL, symbol_sizes, cws_labels, "#adcb17", "CWS Capacity")
+    combined_legend_html <- paste0("<div style='display: flex; background: rgba(255, 255, 255, 0.8); padding: 5px; border-radius: 5px;'>", 
+                                   coop_legend_html, cws_legend_html, "</div>")
+
+    # 3. Build and return the map object
+    leaflet(options = leafletOptions(preferCanvas = TRUE)) %>%
+      addProviderTiles(providers$Esri.WorldTopoMap) %>%
+      addPolygons(data = districts_4326, color = "#A76948", weight = 1, fillOpacity = 0.1) %>%
+      addPolygons(data = lakes_4326, color = "#2CA2E6", weight = 1, fillOpacity = 0.2, popup = ~name) %>%
+      addPolygons(data = np_4326, color = "#158849", weight = 1, fillOpacity = 0.2, popup = ~name) %>%
+      addPolylines(data = country_4326, color = "#A76948", weight = 2) %>%
+      addCircleMarkers(
+        data = data_coops_4326,
+        lng = ~st_coordinates(geom)[,1],
+        lat = ~st_coordinates(geom)[,2],
+        radius = ~size_px/2,
+        fillColor = "#063b57",
+        fillOpacity = 0.8,
+        stroke = TRUE, weight = 1, color = "white",
+        group = "Cooperatives",
+        popup = ~paste0("<b>", cooperative_name, "</b><br>Members: ", format(nbr_cooperative_members, big.mark=","))
+      ) %>%
+      addCircleMarkers(
+        data = data_cws_4326,
+        lng = ~st_coordinates(geom)[,1],
+        lat = ~st_coordinates(geom)[,2],
+        radius = ~size_px/2,
+        fillColor = "#adcb17",
+        fillOpacity = 0.8,
+        stroke = TRUE, weight = 1, color = "white",
+        group = "CWS",
+        popup = ~paste0("<b>", cws_name, "</b><br>Capacity: ", round(actual_capacity/1000, 1), " Tonnes")
+      ) %>%
+      fitBounds(as.numeric(st_bbox(country_4326)[1]), as.numeric(st_bbox(country_4326)[2]), 
+                as.numeric(st_bbox(country_4326)[3]), as.numeric(st_bbox(country_4326)[4])) %>%
+      addLayersControl(overlayGroups = c("Cooperatives", "CWS"), options = layersControlOptions(collapsed = FALSE)) %>%
       addControl(html = combined_legend_html, position = "bottomright")
-  }))
+  })
   
   # Helper function to generate the HTML for the custom legend
   #-------------------------------------------------------------------------------
@@ -585,25 +527,53 @@ server <- function(input, output, session) {
       st_sfc(crs = 4326) %>%
       st_transform(crs = st_crs(districts))
     
-    # find nearest neighbor in each layer using st_nn
-    nn_coops <- st_nn(pt, data_coops, k = 1, returnDist = TRUE)
-    nn_cws <- st_nn(pt, data_cws, k = 1, returnDist = TRUE)
+    # Check which layers are currently active
+    active_layers <- input$map_cws_groups
+    coops_active <- "Cooperatives" %in% active_layers
+    cws_active <- "CWS" %in% active_layers
     
-    # compare distances and select the nearest point
-    if (nn_coops[[2]][[1]] < nn_cws[[2]][[1]]) {
-      nearest_idx <- nn_coops[[1]][[1]]
-      return(list(
-        dataset = "data_coops",
-        row = data_coops[nearest_idx, ]
-      ))
-    } else {
-      nearest_idx <- nn_cws[[1]][[1]]
-      return(list(
-        dataset = "data_cws",
-        row = data_cws[nearest_idx, ]
-      ))
+    # If no layers are active, don't process the click
+    if (!coops_active && !cws_active) {
+      return(NULL)
     }
-  })
+    
+    # Calculate distances only for active layers
+    distances <- list()
+    nearest_points <- list()
+    
+    if (coops_active) {
+      nn_coops <- st_nn(pt, data_coops, k = 1, returnDist = TRUE)
+      distances$coops <- nn_coops[[2]][[1]]
+      nearest_points$coops <- list(
+        dataset = "data_coops",
+        row = data_coops[nn_coops[[1]][[1]], ]
+      )
+    }
+    
+    if (cws_active) {
+      nn_cws <- st_nn(pt, data_cws, k = 1, returnDist = TRUE)
+      distances$cws <- nn_cws[[2]][[1]]
+      nearest_points$cws <- list(
+        dataset = "data_cws",
+        row = data_cws[nn_cws[[1]][[1]], ]
+      )
+    }
+    
+    # Select the nearest point from active layers only
+    if (length(distances) == 1) {
+      # Only one layer is active
+      return(nearest_points[[1]])
+    } else if (length(distances) == 2) {
+      # Both layers are active, choose the nearest
+      if (distances$coops < distances$cws) {
+        return(nearest_points$coops)
+      } else {
+        return(nearest_points$cws)
+      }
+    } else {
+      return(NULL) # No active layers or no click
+    }
+  }) %>% bindCache(input$map_cws_click$lat, input$map_cws_click$lng, input$map_cws_groups)
   
   # render the farms map
   output$map_farms <- renderLeaflet({
@@ -658,19 +628,9 @@ server <- function(input, output, session) {
   # Get the clicked district name
   clicked_district <- reactive({
     req(rv$current_tab == "Coffee Farms View")
-    req(input$map_farms_click)
+    req(input$map_farms_shape_click)
     
-    click <- input$map_farms_click
-    
-    # Create point from click
-    click_point <- st_point(c(click$lng, click$lat)) %>%
-      st_sfc(crs = 4326) %>%
-      st_transform(crs = st_crs(districts))
-    
-    # Find which district was clicked
-    districts %>%
-      st_filter(click_point, .predicate = st_intersects) %>%
-      pull(district)
+    return(input$map_farms_shape_click$id)
   })
   
   # Update the reactive expressions for filtering
@@ -786,80 +746,16 @@ server <- function(input, output, session) {
   # 1. Coops/CWS map 
   observe({
     req(rv$current_tab == "Cooperatives/CWS View")
-    click <- input$map_cws_click
-    
-    # Check which layers are currently active
-    active_layers <- input$map_cws_groups
-    coops_active <- "Cooperatives" %in% active_layers
-    cws_active <- "CWS" %in% active_layers
-    
-    # If no layers are active, don't process the click
-    if (!coops_active && !cws_active) {
-      return()
-    }
-    
-    # Create point from click
-    pt <- st_point(c(click$lng, click$lat)) %>%
-      st_sfc(crs = 4326) %>%
-      st_transform(crs = st_crs(districts))
-    
-    # Calculate distances only for active layers
-    distances <- list()
-    nearest_points <- list()
-    
-    if (coops_active) {
-      nn_coops <- st_nn(pt, data_coops, k = 1, returnDist = TRUE)
-      distances$coops <- nn_coops[[2]][[1]]
-      nearest_points$coops <- list(
-        dataset = "data_coops",
-        row = data_coops[nn_coops[[1]][[1]], ]
-      )
-    }
-    
-    if (cws_active) {
-      nn_cws <- st_nn(pt, data_cws, k = 1, returnDist = TRUE)
-      distances$cws <- nn_cws[[2]][[1]]
-      nearest_points$cws <- list(
-        dataset = "data_cws",
-        row = data_cws[nn_cws[[1]][[1]], ]
-      )
-    }
-    
-    # Select the nearest point from active layers only
-    if (length(distances) == 1) {
-      # Only one layer is active
-      rv$clicked_point <- nearest_points[[1]]
-    } else if (length(distances) == 2) {
-      # Both layers are active, choose the nearest
-      if (distances$coops < distances$cws) {
-        rv$clicked_point <- nearest_points$coops
-      } else {
-        rv$clicked_point <- nearest_points$cws
-      }
-    }
+    rv$clicked_point <- clicked_cws_coop()
   }) %>%
     bindEvent(input$map_cws_click)
   
   # 2. Farms map
   observe({
     req(rv$current_tab == "Coffee Farms View")
-    click <- input$map_farms_click
-    
-    # Create point from click
-    click_point <- st_point(c(click$lng, click$lat)) %>%
-      st_sfc(crs = 4326) %>%
-      st_transform(crs = st_crs(districts))
-    
-    # Find which district was clicked
-    clicked <- districts %>%
-      st_filter(click_point, .predicate = st_intersects) %>%
-      pull(district)
-    
-    if(length(clicked) > 0) {
-      rv$clicked_district <- clicked
-    }
+    rv$clicked_district <- input$map_farms_shape_click$id
   }) %>%
-    bindEvent(input$map_farms_click)
+    bindEvent(input$map_farms_shape_click)
   
   # Map tab observers for highlighting
   observe({
